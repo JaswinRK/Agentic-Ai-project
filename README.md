@@ -31,7 +31,7 @@ deduplicated by `(handle, message, day)` so a replayed run cannot send twice.
 
 ## 2. Architecture
 
-![architecture](architecture.png)
+![architecture](architecture.jpg)
 
 ```
                           ┌───────────────────────────────┐

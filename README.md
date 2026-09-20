@@ -237,11 +237,11 @@ Two MySQL schemas.
 
 **`support`** — domain data (accounts, posts, tickets, replies, assignments, escalations, outbox, policy, idempotency):
 
-![support schema](support_db.png)
+![support schema](Mysql_schema/support_db.png)
 
 **`agent`** — agent memory and queue (threads, messages, runs, steps, tool calls):
 
-![agent schema](agent_db.png)
+![agent schema](Mysql_schema/agent_db.png)
 
 ---
 

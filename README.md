@@ -31,6 +31,8 @@ deduplicated by `(handle, message, day)` so a replayed run cannot send twice.
 
 ## 2. Architecture
 
+![architecture](architecture.png)
+
 ```
                           ┌───────────────────────────────┐
                           │        Supervisor             │
@@ -80,7 +82,7 @@ The crash demo proves this:
 ```
 python -m scripts.demo --crash
   → worker-A dies right after create_ticket commits
-  → the reservation and its idempotency key are already committed
+  → the ticket and its idempotency key are already committed
   → lease expires, worker-B claims the same run
   → worker-B replays create_ticket, gets the stored result back, does nothing again
   → worker-B completes the run
@@ -110,12 +112,12 @@ FLUSH PRIVILEGES;
 Then apply the schema:
 
 ```bash
-mysql -u support -psupport support < schema/library.sql
+mysql -u support -psupport support < schema/support.sql
 mysql -u support -psupport agent   < schema/agent.sql
 ```
 
-The SQL files are idempotent (`CREATE TABLE IF NOT EXISTS`), and the demo reseeds itself
-on every run via `reset()` in `scripts/demo.py`.
+The SQL files use `CREATE TABLE IF NOT EXISTS`, and the demo reseeds itself on every run
+via `reset()` in `scripts/demo.py`.
 
 ### Install and run
 
@@ -204,7 +206,7 @@ every time.
 ## 6. What I left out
 
 - **The real Gemini path is not recorded in this README.** `--real` works (the provider
-  is unchanged from the kit) but I did not run it against a live key to avoid burning
+  is unchanged from the kit) but I did not run it against a live key, to avoid burning
   quota. The no-key proof above is the scripted path.
 - **The scripted resolution specialist uses a fixed ticket id for escalation.** The mock
   cannot read the previous tool's result, so `escalate_ticket(ticket_id=1)` is hard-coded
@@ -215,13 +217,35 @@ every time.
   tests do not pollute each other, but they do require the MySQL setup above.
 - **No cancel-from-a-second-terminal demo.** `request_cancel` and `mark_cancelled` are
   implemented and tested, but the interactive two-terminal demo is not scripted.
-- **No threaded race test.** The lease logic is correct under concurrency (it uses
-  `FOR UPDATE`), but the test suite exercises it sequentially rather than with real
-  threads.
+
+### Higher grade (item 8)
+
+**Retry with backoff and dead-lettering** — implemented in `RunStore.fail_attempt` and
+`RunStore.reap_expired`.
+
+- A retryable failure requeues the run with `available_at = now + backoff_seconds * 2^(attempts-1)`.
+- A run that exhausts `max_attempts` is dead-lettered with `status = 'dead'` and
+  `error_code` set.
+- Tested in `tests/test_memory.py::test_fail_attempt_requeues_with_backoff` and
+  `tests/test_memory.py::test_reap_expired_dead_letters_when_attempts_exhausted`.
 
 ---
 
-## 7. Files
+## 7. Database schema
+
+Two MySQL schemas.
+
+**`support`** — domain data (accounts, posts, tickets, replies, assignments, escalations, outbox, policy, idempotency):
+
+![support schema](db_support.png)
+
+**`agent`** — agent memory and queue (threads, messages, runs, steps, tool calls):
+
+![agent schema](db_agent.png)
+
+---
+
+## 8. Files
 
 ```
 app/
@@ -229,7 +253,7 @@ app/
   idempotency.py        key fingerprints (unchanged from kit)
   tools/
     dispatch.py         argument coercion (unchanged from kit)
-    library_tools.py    TriageTools, ResolutionTools (domain)
+    library_tools.py    TriageTools, ResolutionTools  (filename kept per the brief)
   library_db.py         SupportDb — every SQL statement for the domain
   memory.py             RunStore — thread, message, run, run_step, tool_call
   agents.py             SupervisorTools, run_specialist, run_tool
@@ -238,7 +262,7 @@ app/
   config.py             wiring: open_stores, make_providers
   providers.py          GeminiProvider, ScriptedProvider, RoutedMock, demo_providers
 schema/
-  library.sql           domain schema (support)
+  support.sql           domain schema (support)
   agent.sql             memory and queue schema (agent)
 scripts/
   demo.py               the whole project in one command
@@ -251,6 +275,9 @@ tests/
   test_idempotency.py   db.once, key stability, dedupe
   test_memory.py        queue, lease, heartbeat, reap, cancel, retry
   test_tools.py         tool docs, read-only vs write, policy enforcement
+architecture.png        system architecture diagram
+db_support.png          ER diagram: support schema
+db_agent.png            ER diagram: agent schema
 requirements.txt
 pytest.ini
 README.md
